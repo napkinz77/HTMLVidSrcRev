@@ -1,0 +1,280 @@
+function vidSrcRev() {
+	if (document.getElementById('vidRev').checked) {
+		let vidlink = document.getElementById('linkdvid').value;
+		if ((vidlink != 'URL') && (vidlink != null)) {
+			fetch(vidlink)
+			.then(res => res.blob())
+			.then(blob => {
+				return new Promise((res) => {
+					const fr = new FileReader();
+					fr.onload = e => res(fr.result);
+					fr.readAsDataURL(blob);
+				})
+			}).then(async(base64str) => {
+				const video = document.createElement("video");
+				video.src = base64str;
+				video.controls = true;
+				video.className = "w-50";
+				//video.load();
+
+				while (isNaN(video.duration))
+				await new Promise((r) => setTimeout(r, 50));
+ 
+				let videoUrl = document.getElementById('linkdvid').value;
+				const FPS = document.getElementById('framer8').value;
+				let vclass = "l-50";
+				console.log(vclass);
+				if (video.videoHeight > ((3/4)*video.videoWidth)) { vclass = "v-50" };
+				console.log(vclass);
+				
+				
+				
+				// Load audio from URL
+				const buffer = await Tone.Buffer.fromUrl(videoUrl);
+
+				// Create a buffer source and reverse audio
+				const bufferSource = new Tone.BufferSource(buffer)
+					.set({
+						"reverse": true
+					})
+					.connect(Tone.getDestination());
+				//bufferSource.reverse = true;
+
+				// Connect buffer source to audio context and start playing
+				//bufferSource.connect(Tone.getDestination());
+				//bufferSource.start();
+				
+				
+				const status = document.createElement("div"),
+				length = document.createElement("div");
+				length.innerText = `Generating ${Math.ceil(video.duration / (1 / FPS))} frames for a ${FPS} FPS playback (Video Duration = ${video.duration})`;
+				document.getElementById('revtimer').appendChild(length);
+				document.getElementById('revtimer').appendChild(status);
+
+				let tframes = [], pframes = [], tf = true, pf = false, canvas = document.createElement("canvas"), img = document.createElement("img"), gl = null, texture = null;
+				Object.assign(canvas, {
+					width: video.videoWidth,
+					height: video.videoHeight,
+					className: 'i-50'
+				});
+				Object.assign(img, {
+					width: video.videoWidth,
+					height: video.videoHeight,
+					className: vclass,
+					id: 'icont'
+				});
+				const frames = []; 
+				function copy() {
+					//img.src = '';
+					//texture = null;
+					//durl = null;
+				/* },
+				async prop = () => { */
+					if(gl == null) {
+						//const canvas = document.createElement("canvas");
+						gl = canvas.getContext("webgl2");
+						if (!gl) {
+							console.error("WebGL2 not supported");
+							return null;
+						}
+					}
+
+					// create texture
+					texture = gl.createTexture();
+					gl.bindTexture(gl.TEXTURE_2D, texture);
+					gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+					gl.generateMipmap(gl.TEXTURE_2D);
+
+					// create buffer and program
+					const positionBuffer = gl.createBuffer();
+					gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+						-1.0, -1.0,
+						 1.0, -1.0,
+						-1.0,  1.0,
+						 1.0,  1.0,
+					]), gl.STATIC_DRAW);
+					const vertexShaderSource = `
+						attribute vec2 a_position;
+						varying vec2 v_texCoord;
+						void main() {
+							gl_Position = vec4(a_position, 0, 1);
+							v_texCoord = vec2(a_position.x, 2.0 - a_position.y) * 0.5 + 0.5;
+						}
+					`;
+					const fragmentShaderSource = `
+						precision mediump float;
+						uniform sampler2D u_texture;
+						varying vec2 v_texCoord;
+						void main() {
+							gl_FragColor = texture2D(u_texture, v_texCoord);
+						}
+					`;
+					const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+					const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+					const program = createProgram(gl, vertexShader, fragmentShader);
+
+					// bind program and set uniforms
+					gl.useProgram(program);
+					gl.bindTexture(gl.TEXTURE_2D, texture);
+					gl.uniform1i(gl.getUniformLocation(program, "u_texture"), 0);
+
+					// draw to canvas
+					gl.enableVertexAttribArray(gl.getAttribLocation(program, "a_position"));
+					gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+					gl.vertexAttribPointer(gl.getAttribLocation(program, "a_position"), 2, gl.FLOAT, false, 0, 0);
+					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+					//let img = document.createElement("img");
+					
+					// let imload = true;
+					const durl = canvas.toDataURL();
+					//const base64im = getBase64StringFromDataURL(durl);
+					/*console.log(durl);
+					img.addEventListener('load', function imLoad() { 
+						if (imload == false) {
+							
+							let imload = true;
+							img.removeEventListener('load', imLoad());
+							
+						}
+					}, {
+							once: true
+						});
+					imload = false;
+					img.src = durl; */
+					//while (imload == false) { return; };
+					//img.className = vclass;
+					return durl;
+				};
+
+				function createShader(gl, type, source) {
+					const shader = gl.createShader(type);
+					gl.shaderSource(shader, source);
+					gl.compileShader(shader);
+					if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+						console.error(`Error compiling ${type === gl.VERTEX_SHADER ? "vertex" : "fragment"} shader:`, gl.getShaderInfoLog(shader));
+						return null;
+					}
+					return shader;
+				}
+
+				function createProgram(gl, vertexShader, fragmentShader) {
+					const program = gl.createProgram();
+					gl.attachShader(program, vertexShader);
+					gl.attachShader(program, fragmentShader);
+					gl.linkProgram(program);
+					if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+						console.error("Error linking program:", gl.getProgramInfoLog(program));
+						return null;
+					}
+					return program;
+				}
+
+				// first seek outside of the loop this image won't be copied
+				video.currentTime = video.duration; 
+				// this frame seems to be always white/transparent
+    
+				async function twrite(tframeC) {
+					let writeT = new Promise(function(tfr) {
+						frames.push(...tframeC);
+						status.innerText = (frames.length / (Math.ceil(video.duration / (1 / FPS))) * 100).toFixed(2) + '%';
+						tfr();
+					});
+					let wait = await writeT;
+					return;
+				}
+				async function pwrite(pframeC) {
+					let writeP = new Promise(function(pfr) {
+						frames.push(...pframeC);
+						status.innerText = (frames.length / (Math.ceil(video.duration / (1 / FPS))) * 100).toFixed(2) + '%';
+						pfr();
+					});
+					let wait = await writeP;
+					return;
+				}
+	
+				while (video.currentTime) {
+					if (video.currentTime - 1 / FPS < 0)
+						video.currentTime = 0;
+					else
+						video.currentTime = video.currentTime - 1 / FPS;
+					await new Promise((next) => {
+						video.addEventListener('seeked', () => {
+							if (tf) { tframes.push(copy()); }
+							if (pf) { pframes.push(copy()); }
+							if (tframes.length > 999 || (video.currentTime == 0 && (tf))) {
+								console.log("pusht");
+								pf = true
+								tf = false
+								twrite(tframes).then( function(tclear) { 
+									tframes.length = 0;
+									tframes = [];
+							})}
+							if (pframes.length > 999 || (video.currentTime == 0 && (pf))) {
+								console.log("pushp");
+								tf = true
+								pf = false
+								pwrite(pframes).then( function(pclear) {
+									pframes.length = 0;
+									pframes = [];
+								})}
+							
+							
+							next();
+						}, {
+							once: true
+						});
+					});      
+				}
+
+
+			/*
+			* frames now contains all canvas elements created,
+			* I just append the first image and replace it on
+			* every tick with the next frame.
+			* using last.replaceWith(frames[currentPos]) guarantees a smooth playback.
+			*/
+
+				/* for (let f = 0; f < frames.length; f++) {
+					const image = new Image();
+					image.onload = function() {
+						frames[f] = image;
+					};
+					image.src = frames[f];
+				} */
+
+				let i = 0, last = frames[0];
+
+				document.body.insertAdjacentHTML('afterbegin', `<div class="w-50">Captured</div><div class="w-50">Video</div>`);
+				//t imageCont = document.getElementById('icont');
+				console.log(img);
+				document.getElementById('dframe1').appendChild(img);
+				bufferSource.start();
+
+				const interval = setInterval(() => {
+					if (frames[++i]) {
+						img.src = last;
+						//last.replaceWith(frames[i]);
+						last = frames[i];
+					} else {
+						if (document.getElementById('vidRev').checked == false) {
+							clearInterval(interval);
+	/* 						let dcan = document.getElementById('revvid');
+							dcan.parentNode.removeChild(dcan); */
+						} else {
+						//frames.reverse();
+						i=0;
+						//bufferSource.start();
+						}}
+				}, 1000 / FPS);
+			
+				//document.body.appendChild(video);
+				// won't :(
+				//video.play();
+			});
+		}
+	} else {
+		let proc = 0;
+		//chrome.runtime.sendMessage('naalbkdngooefmoakpcodbfddanimnmp', { vid: null });
+	}
+}
